@@ -160,6 +160,16 @@ class SSM(ABC):
         """
         raise NotImplementedError
 
+    # @property
+    # @abstractmethod
+    # def weights_shape(self) -> Tuple[int]:
+    #     r"""Return a pytree matching the pytree of tuples specifying the shape of a single time step's emissions.
+
+    #     For example, a `GaussianHMM` with $D$ dimensional emissions would return `(D,)`.
+
+    #     """
+    #     raise NotImplementedError
+    
     @property
     def inputs_shape(self) -> Optional[Tuple[int]]:
         r"""Return a pytree matching the pytree of tuples specifying the shape of a single time step's inputs.
@@ -305,6 +315,7 @@ class SSM(ABC):
         self,
         params: ParameterSet,
         emissions: Float[Array, "num_timesteps emission_dim"],
+        weights: Float[Array, "num_timesteps emission_dim"],
         inputs: Optional[Float[Array, "num_timesteps input_dim"]]=None
     ) -> Tuple[SuffStatsSSM, Scalar]:
         r"""Perform an E-step to compute expected sufficient statistics under the posterior, $p(z_{1:T} \mid y_{1:T}, u_{1:T}, \theta)$.
@@ -351,6 +362,8 @@ class SSM(ABC):
         props: PropertySet,
         emissions: Union[Float[Array, "num_timesteps emission_dim"],
                          Float[Array, "num_batches num_timesteps emission_dim"]],
+        weights: Union[Float[Array, "num_timesteps emission_dim"],
+                         Float[Array, "num_batches num_timesteps emission_dim"]],
         inputs: Optional[Union[Float[Array, "num_timesteps input_dim"],
                                Float[Array, "num_batches num_timesteps input_dim"]]]=None,
         num_iters: int=50,
@@ -382,21 +395,30 @@ class SSM(ABC):
         # Make sure the emissions and inputs have batch dimensions
         batch_emissions = ensure_array_has_batch_dim(emissions, self.emission_shape)
         batch_inputs = ensure_array_has_batch_dim(inputs, self.inputs_shape)
-
+        #batch_weights = ensure_array_has_batch_dim(weights, self.weights_shape)
+        
         @jit
         def em_step(params, m_step_state):
-            batch_stats, lls = vmap(partial(self.e_step, params))(batch_emissions, batch_inputs)
+            # Ines changed
+            #batch_stats, lls = vmap(partial(self.e_step, params))(batch_emissions, batch_inputs)
+            batch_stats, lls, args = vmap(partial(self.e_step, params))(batch_emissions, weights, batch_inputs)
+            
             lp = self.log_prior(params) + lls.sum()
             params, m_step_state = self.m_step(params, props, batch_stats, m_step_state)
-            return params, m_step_state, lp
+            # Ines changed
+            # return params, m_step_state, lp
+            return params, m_step_state, lp, lls, args
+        
 
         log_probs = []
         m_step_state = self.initialize_m_step_state(params, props)
         pbar = progress_bar(range(num_iters)) if verbose else range(num_iters)
         for _ in pbar:
-            params, m_step_state, marginal_loglik = em_step(params, m_step_state)
+            #params, m_step_state, marginal_loglik = em_step(params, m_step_state)
+            params, m_step_state, marginal_loglik, ll_check, args = em_step(params, m_step_state)
             log_probs.append(marginal_loglik)
-        return params, jnp.array(log_probs)
+        #return params, jnp.array(log_probs)
+        return params, jnp.array(log_probs), ll_check, args
 
     def fit_sgd(
         self,

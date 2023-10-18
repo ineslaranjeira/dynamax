@@ -101,7 +101,7 @@ def hmm_filter(
     transition_matrix: Union[Float[Array, "num_timesteps num_states num_states"],
                              Float[Array, "num_states num_states"]],
     log_likelihoods: Float[Array, "num_timesteps num_states"],
-    transition_fn: Optional[Callable[[Int], Float[Array, "num_states num_states"]]] = None
+    transition_fn: Optional[Callable[[Int], Float[Array, "num_states num_states"]]] = None,
 ) -> HMMPosteriorFiltered:
     r"""Forwards filtering
 
@@ -126,7 +126,7 @@ def hmm_filter(
         log_normalizer, predicted_probs = carry
 
         A = get_trans_mat(transition_matrix, transition_fn, t)
-        ll = log_likelihoods[t]
+        ll = log_likelihoods[t]  # Need to edit here to adjust
 
         filtered_probs, log_norm = _condition_on(predicted_probs, ll)
         log_normalizer += log_norm

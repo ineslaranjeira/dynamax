@@ -54,6 +54,10 @@ class GaussianHMMEmissions(HMMEmissions):
     def emission_shape(self):
         return (self.emission_dim,)
 
+    @property
+    def weights_shape(self):
+        return (self.emission_dim,)
+
     def distribution(self, params, state, inputs=None):
         return tfd.MultivariateNormalFullCovariance(
             params.means[state], params.covs[state])

@@ -347,6 +347,16 @@ class HMMEmissions(ABC):
         """
         raise NotImplementedError
 
+    # @property
+    # @abstractmethod
+    # def weights_shape(self) -> Tuple[int]:
+    #     """Return a pytree matching the pytree of tuples specifying the shape(s)
+    #     of a single time step's emissions.
+
+    #     For example, a Gaussian HMM with D dimensional emissions would return (D,).
+    #     """
+    #     raise NotImplementedError
+
     @abstractmethod
     def distribution(self,
                      params: ParameterSet,
@@ -402,6 +412,22 @@ class HMMEmissions(ABC):
                 jnp.arange(self.num_states))
         return vmap(f)(emissions, inputs)
 
+    def _compute_conditional_logliks_weighted(self, params, emissions, weights, inputs=None):
+        # Compute the log probability for each time step by
+        # performing a nested vmap over emission time steps and states.
+        f = lambda emission, wht, inpt: \
+            vmap(lambda state: self.distribution(params, state, inpt).log_prob(emission) * wht)(
+                jnp.arange(self.num_states))
+        return vmap(f)(emissions, weights, inputs)
+
+    # # The inference functions all need the same arguments
+    # def _weighted_inference_args(self, params, emissions, weights, inputs):
+        
+    #     weighted_lls = self.emission_component._compute_conditional_logliks(params.emissions, emissions, inputs) * weights
+    #     return (self.initial_component._compute_initial_probs(params.initial, inputs),
+    #             self.transition_component._compute_transition_matrices(params.transitions, inputs),
+    #             weighted_lls)
+    
     def collect_suff_stats(self,
                            params: ParameterSet,
                            posterior: HMMPosterior,
@@ -547,12 +573,20 @@ class HMM(SSM):
         lp += self.emission_component.log_prior(params.emissions)
         return lp
 
-    # The inference functions all need the same arguments
+    ## The inference functions all need the same arguments
     def _inference_args(self, params, emissions, inputs):
+        
         return (self.initial_component._compute_initial_probs(params.initial, inputs),
                 self.transition_component._compute_transition_matrices(params.transitions, inputs),
                 self.emission_component._compute_conditional_logliks(params.emissions, emissions, inputs))
 
+    # The inference functions all need the same arguments
+    def _weighted_inference_args(self, params, emissions, weights, inputs):
+        
+        return (self.initial_component._compute_initial_probs(params.initial, inputs),
+                self.transition_component._compute_transition_matrices(params.transitions, inputs),
+                self.emission_component._compute_conditional_logliks_weighted(params.emissions, emissions, weights, inputs))
+    
     # Convenience wrappers for the inference code
     def marginal_log_prob(self, params, emissions, inputs=None):
         post = hmm_filter(*self._inference_args(params, emissions, inputs))
@@ -568,17 +602,21 @@ class HMM(SSM):
         return hmm_smoother(*self._inference_args(params, emissions, inputs))
 
     # Expectation-maximization (EM) code
-    def e_step(self, params, emissions, inputs=None):
+    def e_step(self, params, emissions, weights, inputs=None):
         """The E-step computes expected sufficient statistics under the
         posterior. In the generic case, we simply return the posterior itself.
         """
-        args = self._inference_args(params, emissions, inputs)
+        args = self._weighted_inference_args(params, emissions, weights, inputs)
+        _, _, log_liks = args
         posterior = hmm_two_filter_smoother(*args)
 
         initial_stats = self.initial_component.collect_suff_stats(params.initial, posterior, inputs)
         transition_stats = self.transition_component.collect_suff_stats(params.transitions, posterior, inputs)
         emission_stats = self.emission_component.collect_suff_stats(params.emissions, posterior, emissions, inputs)
-        return (initial_stats, transition_stats, emission_stats), posterior.marginal_loglik
+        
+        # Ines changed
+        #return (initial_stats, transition_stats, emission_stats), posterior.marginal_loglik
+        return (initial_stats, transition_stats, emission_stats), posterior.marginal_loglik, log_liks
 
     def initialize_m_step_state(self, params, props):
         """Initialize any required state for the M step.
