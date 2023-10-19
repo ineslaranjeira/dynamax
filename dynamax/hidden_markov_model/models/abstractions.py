@@ -488,7 +488,8 @@ class HMMEmissions(ABC):
 
             def _single_expected_log_like(stats):
                 expected_states, emissions, inputs = stats
-                log_likelihoods = self._compute_conditional_logliks(params, emissions, inputs)
+                #log_likelihoods = self._compute_conditional_logliks(params, emissions, inputs)
+                log_likelihoods = self._compute_conditional_logliks_weighted(params, emissions, inputs)
                 lp = jnp.sum(expected_states * log_likelihoods)
                 return lp
 
